@@ -2,7 +2,8 @@
 
 **Brief version:** 2026-07  
 **Fixture checksum (SHA-256):** `1aeb24b415009e89fcf8acb5a178410faf216dc17b16920d9849ecc8bbb24235`  
-**Author context:** Queue-based backend experience (RabbitMQ-adjacent patterns: backpressure, at-least-once delivery, idempotent handlers). PostHog referenced only as an SDK consumer, not as infrastructure we operate.
+**Author context:** Queue-based backend experience (RabbitMQ-adjacent patterns: backpressure, at-least-once delivery, idempotent handlers). PostHog referenced only as an SDK consumer, not as infrastructure we operate.  
+**Operating artifacts (excluded from page count):** `docs/fixture-forensics.md`, `src/analytics_pipeline/` + `tests/`, `docs/benchmark-results.md`, `docs/evidence-log.md`, `docs/submission-disclosures.md`.
 
 ## Assumptions
 
@@ -59,7 +60,7 @@ flowchart LR
 
 **Hot storage:** ElastiCache (Redis) for live counters and personalization trigger state (TTL keys per `anonymous_id`/`user_id`). DynamoDB for dashboard rollups (tenant-scoped partition keys) and segment definitions.
 
-- **Chosen:** ElastiCache + DynamoDB — ElastiCache for sub-10ms counter increments; DynamoDB for queryable aggregates with on-demand billing.
+- **Chosen:** ElastiCache + DynamoDB — ElastiCache for sub-10ms `[Estimated]` counter increments; DynamoDB for queryable aggregates, segment definitions, and behavioral rules (e.g., "viewed pricing 3×").
 - **Rejected:** PostgreSQL hot path — current system's bottleneck. OpenSearch for rollups — higher cost and ops for simple key-value aggregates.
 
 **Cold-path processing:** Fargate tasks consume Kinesis via Enhanced Fan-Out, write Parquet to S3, stage warehouse loads.
@@ -91,7 +92,7 @@ Canonical fields: `event_id`, `tenant_id`, `type`, `ts`, `received_at`, `anonymo
 
 ### Fixture anomaly handling (nine classes + compliance workflow)
 
-Checksum: `1aeb24b415009e89fcf8acb5a178410faf216dc17b16920d9849ecc8bbb24235` (per `docs/fixture-forensics.md`).
+Ground truth: `docs/fixture-forensics.md`. Validated by `detect_anomalies()` (`pytest tests/test_anomalies.py`; `[Benchmarked]` ~212K events/sec in `docs/benchmark-results.md`).
 
 **Not at face value (six refusals):** (1) `evt-0006` — 65-min `ts` offset with matching `.552` ms suffix is a timezone bug, not a future event; order by `received_at`. (2) `evt-0009` — legacy SDK shape; normalize, never drop (brief forbids SDK upgrade). (3) `evt-0017` — GDPR `delete_all_data` mandate, not analytics volume; route to compliance workflow. (4) `evt-0002` — retry signature (`received_at` +7.4s); dedupe on `event_id` only. (5) `evt-0011` — null `tenant_id` is unattributable; quarantine, never default. (6) `evt-0020` — corrupt JSON; DLQ and continue, never crash loader.
 
@@ -112,6 +113,10 @@ Checksum: `1aeb24b415009e89fcf8acb5a178410faf216dc17b16920d9849ecc8bbb24235` (pe
 
 ## 2. Scale, Reliability & Migration
 
+### Throughput sizing `[Estimated]`
+
+`50M/day ÷ 86,400s ≈ 578 events/sec` avg; `× 10 spike ≈ 5,780/sec`. Kinesis: `1,000 rec/s/shard` `[Benchmarked]` (AWS service limits) → `30 shards = 30,000 rec/s` (`~5.2×` headroom at peak).
+
 ### Latency budget (target: <5s end-to-end) `[Estimated]`
 
 | Stage | Component | p99 budget | Notes |
@@ -124,7 +129,7 @@ Checksum: `1aeb24b415009e89fcf8acb5a178410faf216dc17b16920d9849ecc8bbb24235` (pe
 
 ### Cost breakdown at 50M+ events/day `[Estimated]` / `[Assumed]`
 
-~578 events/sec average `[Estimated]`; ~5,780/sec at 10x spike `[Estimated]` (absorbed by Kinesis buffering).
+Sizing per throughput section above. Parallel-run months 1–3 tee 100% to legacy + new path; legacy Redis/PostgreSQL cost is sunk `[Assumed]`; `~$8K` headroom absorbs overlap API Gateway/Kinesis ingest during migration.
 
 | Service | Monthly cost | Basis |
 |---------|-------------|-------|
@@ -149,12 +154,12 @@ Checksum: `1aeb24b415009e89fcf8acb5a178410faf216dc17b16920d9849ecc8bbb24235` (pe
 
 ### Zero-data-loss mechanism
 
-1. **At-least-once:** Kinesis retains 24h+; consumers checkpoint after durable side-effects.
-2. **Idempotent dedupe:** DynamoDB table, PK=`event_id`, conditional put after normalize, ~7-day TTL. Duplicates (`evt-0002`) exit before hot writes.
+1. **At-least-once:** Kinesis retains 24h+ `[Assumed]`; consumers checkpoint after durable side-effects.
+2. **Idempotent dedupe:** DynamoDB table, PK=`event_id`, conditional put after normalize, ~7-day TTL `[Assumed]`. Duplicates (`evt-0002`) exit before hot writes.
 3. **DLQ:** SQS dead-letter for validation/parse failures (`evt-0020`) — not for duplicates.
 4. **Replay:** Fargate jobs replay DLQ and S3 quarantine after fix; idempotency prevents double-apply.
-
-Analogous to queue-based backends: Kinesis is the durable buffer (like RabbitMQ), handlers must be idempotent (like retry-safe consumers), DLQ is the poison-message queue.
+5. **Degradation order:** personalization freshness → dashboard staleness (up to 30s `[Assumed]`) → per-tenant rate limits → DLQ (never silent discard).
+6. **Detection:** hourly parity vs legacy; CloudWatch `IteratorAge`, `DLQDepth`, `DuplicateEventRate`; sample-stream census via `detect_anomalies()`.
 
 ### Burst / spike handling
 
@@ -170,7 +175,8 @@ Analogous to queue-based backends: Kinesis is the durable buffer (like RabbitMQ)
 | Encryption at rest | KMS on S3, DynamoDB, Kinesis (server-side); per-tenant CMKs for quarantine |
 | Encryption in transit | TLS 1.2+ on API Gateway; Kinesis in-VPC endpoints |
 | Data residency | MVP: `us-east-1`; EU stack months 4–6 with tenant-level routing |
-| Right to deletion | `evt-0017` workflow: Step Functions erasure across all stores; confirmation audit log |
+| Right to deletion (GDPR) | `evt-0017` workflow: Step Functions erasure across all stores; human approval gate; confirmation audit log |
+| CCPA access / opt-out | Dashboard export API for access/portability; `do_not_sell` tenant flag suppresses third-party warehouse sync |
 | Audit logging | CloudTrail (API), S3 access logs (quarantine), DynamoDB streams (dedupe audit) |
 | Tenant segregation | Partition keys, IAM boundaries, separate KMS keys for sensitive prefixes |
 
@@ -178,14 +184,14 @@ Analogous to queue-based backends: Kinesis is the durable buffer (like RabbitMQ)
 
 **Strategy:** Parallel-run from day one. API Gateway tees 100% to legacy Redis queue AND new Kinesis path. No SDK change.
 
-**Validation:** Hourly per-tenant checks — event counts, distinct `event_id` sets, rollup checksums (DynamoDB vs PostgreSQL).
+**Validation (testable definition):** Hourly per-tenant: (1) ingest count delta ≤0.1% `[Assumed]` tolerance, (2) symmetric difference of `event_id` sets = ∅, (3) rollup checksum match (DynamoDB vs PostgreSQL materialized views).
 
-**Promote:** Move tenant Gateway routing weight to new path when ≥99.9% parity for 72 consecutive hours.
+**Promote:** Move tenant Gateway routing weight to new path when ≥99.9% parity `[Assumed]` for 72 consecutive hours `[Assumed]`.
 
 **Rollback trigger (any one):**
-- Parity <99.9% for any hour
-- p99 end-to-end latency >5s for 15 minutes
-- DLQ rate >0.1% of ingest volume
+- Parity <99.9% `[Assumed]` for any hour
+- p99 end-to-end latency >5s `[Assumed]` for 15 minutes `[Assumed]`
+- DLQ rate >0.1% `[Assumed]` of ingest volume
 
 **Rollback action:** Revert Gateway routing weight per tenant to legacy path. Kinesis buffer retains events for replay after fix.
 
@@ -212,7 +218,7 @@ Analogous to queue-based backends: Kinesis is the durable buffer (like RabbitMQ)
 
 ### What could go wrong
 
-Dedupe TTL expiry after 7 days `[Assumed]` could double-count replays — extend TTL for warehouse. Bot heuristic false positives — tenant override list until ML (months 4–6). Kinesis shard exhaustion during extreme spike — pre-scale via runbook; tier promotion for noisy tenants. EU residency delay — interim DPAs for GDPR tenants before month 4.
+See `docs/submission-disclosures.md`. Headline risks: dedupe TTL expiry; bot false positives; shard exhaustion beyond 30-shard budget; EU residency delay.
 
 ### With more time/budget
 
