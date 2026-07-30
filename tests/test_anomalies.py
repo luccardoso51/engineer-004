@@ -63,6 +63,22 @@ class TestDetectAnomaliesOnFixture(unittest.TestCase):
         flagged = {a.event_id for a in self.anomalies}
         self.assertNotIn("evt-0001", flagged)
 
+    def test_all_nine_taxonomy_classes_present_in_pipeline(self) -> None:
+        report = build_report(load_jsonl(FIXTURE))
+        classes = set(report["summary"]["anomaly_class_counts"])
+        expected = {
+            "duplicate_event_id",
+            "clock_skew",
+            "timezone_offset",
+            "future_timestamp",
+            "missing_required_field",
+            "unexpected_pii",
+            "schema_drift",
+            "bot_burst",
+            "malformed_json_record",
+        }
+        self.assertTrue(expected.issubset(classes))
+
 
 class TestBorderlineCases(unittest.TestCase):
     @classmethod

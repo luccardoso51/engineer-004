@@ -1,3 +1,4 @@
+import hashlib
 import sys
 import tempfile
 import unittest
@@ -9,9 +10,14 @@ from analytics_pipeline.loader import load_jsonl  # noqa: E402
 from analytics_pipeline.main import build_report  # noqa: E402
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "event_sample.jsonl"
+FIXTURE_SHA256 = "1aeb24b415009e89fcf8acb5a178410faf216dc17b16920d9849ecc8bbb24235"
 
 
 class TestLoadJsonl(unittest.TestCase):
+    def test_fixture_checksum_matches_forensics_catalog(self) -> None:
+        digest = hashlib.sha256(FIXTURE.read_bytes()).hexdigest()
+        self.assertEqual(digest, FIXTURE_SHA256)
+
     def test_loads_fixture_events(self) -> None:
         result = load_jsonl(FIXTURE)
         self.assertEqual(len(result.events), 24)

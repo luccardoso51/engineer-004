@@ -26,6 +26,16 @@ class TestMainCli(unittest.TestCase):
         self.assertEqual(len(dead["anomalies"]), 1)
         self.assertEqual(dead["anomalies"][0]["action"], "dead_letter")
 
+    def test_census_summary_matches_fixture_forensics(self) -> None:
+        report = build_report(load_jsonl(FIXTURE))
+        summary = report["summary"]
+        self.assertEqual(summary["total_keys"], 24)
+        self.assertEqual(summary["clean"], 11)
+        self.assertEqual(summary["flagged"], 12)
+        self.assertEqual(summary["dead_letter"], 1)
+        self.assertEqual(summary["anomaly_class_counts"]["bot_burst"], 4)
+        self.assertEqual(summary["anomaly_class_counts"]["malformed_json_record"], 1)
+
     def test_cli_prints_json(self) -> None:
         result = subprocess.run(
             [sys.executable, "-m", "analytics_pipeline.main", "--fixture", str(FIXTURE)],
