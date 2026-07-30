@@ -20,6 +20,19 @@ This ticket is analysis and documentation only. No detection code lives here.
 
 Brief version worked against: `2026-07` (per `brief.md`).
 
+### Number source labels
+
+Per `SCORING.md` and brief requirement #4, numbers are labeled by source.
+Unless a value is tagged otherwise, **every quantity in this document is
+`[Observed]`** — read directly from `fixtures/event_sample.jsonl` at the
+checksum above, or exact arithmetic on those raw values (timestamp diffs,
+counts). Reproduce any of them from the fixture. No `[Estimated]`,
+`[Benchmarked]`, or `[Assumed]` numbers appear here; the interpretations
+(e.g. "retry", "timezone bug") are labeled inferences, not numbers.
+
+Evidence tier for this artifact: Tier 3 (source record) — findings are
+reproducible from the checksummed raw file with `json.loads`.
+
 ### Method
 
 Every line was parsed with a real `json.loads` pass. Successful records were
@@ -58,9 +71,11 @@ taxonomy below still totals nine classes, but with a different composition.
   this snapshot. (This was verified by building the id->tenant maps: both
   contained zero multi-tenant keys.)
 - **per-tenant volume drop-to-zero** — NOT observable. The fixture is a single
-  static ~90-second snapshot, not a time series, so a per-tenant rate dropping
-  to zero cannot be seen or tested against this file. A volume-collapse
-  detector belongs to streaming/windowed data, not to this fixture.
+  static snapshot spanning `[Observed]` ~17.5 minutes of `ts` (first event
+  `evt-0001` at 14:02:11.104Z, last event `evt-0024` at 14:19:41.088Z), not a
+  time series, so a per-tenant rate dropping to zero cannot be seen or tested
+  against this file. A volume-collapse detector belongs to streaming/windowed
+  data, not to this fixture.
 - **impossible field values (generic negative/out-of-range)** — no negative
   counts or out-of-range primitives are planted. `evt-0019` carries
   `count_today: 3`, which is fine. The only genuinely impossible *value* in the
