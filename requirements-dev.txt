@@ -1,0 +1,5 @@
+# Optional dev tooling (not required to run main.py or tests, which use
+# only the standard library). Install locally with:
+#   python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements-dev.txt
+pytest>=8.0
+ruff>=0.6
