@@ -17,7 +17,7 @@ Per `brief.md` submission packet items #5–7 and `SCORING.md` AI Usage / Failur
 | Failure mode | Why the design fails | Detection |
 |--------------|---------------------|-----------|
 | `event_id` not globally unique | Dedupe table collapses distinct events | Sudden rollup drops; parity check vs legacy |
-| Sustained spike >30K events/sec | Kinesis shard capacity exhausted despite buffering | `IteratorAge` alarm; ingest 503 rate |
+| Sustained spike >`[Estimated]` 30K events/sec | Kinesis shard capacity exhausted despite buffering | `IteratorAge` alarm; ingest 503 rate |
 | Dedupe TTL < replay lag | Double-counted events after DLQ replay | `DuplicateEventRate` after replay jobs |
 | Bot heuristic false positive | Legitimate traffic excluded from hot rollups | Tenant support tickets; per-tenant override list |
 | Parallel-run tee misconfigured | Legacy path starved or double-billed | Per-path ingest counters diverge |
@@ -31,7 +31,7 @@ Per `brief.md` submission packet items #5–7 and `SCORING.md` AI Usage / Failur
 | GDPR/CCPA erasure approval (`evt-0017`) | Legal scope confirmation; prevent mistaken full-account wipe |
 | Quarantine release for `evt-0011` (null `tenant_id`) | Attribution requires support investigation, not guesswork |
 | Tenant tier promotion/demotion | Business relationship + ingest profile judgment |
-| Migration promote per tenant (72h parity gate) | Rollback cost is customer-visible; engineer signs off |
+| Migration promote per tenant (`[Assumed]` 72h parity gate) | Rollback cost is customer-visible; engineer signs off |
 | Bot-flag override for enterprise tenants | False positive risk on high-value traffic |
 | Shard-split runbook execution during Black Friday | Capacity change with spend impact; on-call judgment |
 | PII quarantine review (`evt-0007`) | Compliance officer confirms redaction scope |

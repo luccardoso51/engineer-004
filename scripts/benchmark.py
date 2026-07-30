@@ -20,6 +20,7 @@ FIXTURE = ROOT / "fixtures" / "event_sample.jsonl"
 OUTPUT = ROOT / "docs" / "benchmark-results.md"
 ITERATIONS = 10_000
 FIXTURE_SHA256 = "1aeb24b415009e89fcf8acb5a178410faf216dc17b16920d9849ecc8bbb24235"
+CLI_CENSUS_CMD = "From: `python3 -m analytics_pipeline.main --fixture fixtures/event_sample.jsonl`"
 
 
 def _fixture_sha256(path: Path) -> str:
@@ -51,33 +52,45 @@ def _format_report(
         "## Provenance",
         "",
         f"- Fixture: `{FIXTURE.relative_to(ROOT)}`",
-        f"- SHA-256: `{fixture_sha256}`",
+        f"- SHA-256: `{fixture_sha256}` `[Observed]`",
         "  - Reproduce with: `shasum -a 256 fixtures/event_sample.jsonl`",
         "",
-        "## Performance ([Benchmarked])",
+        "## Performance ([Observed])",
         "",
-        f"- Iterations: {iterations}",
-        f"- Events per call: {event_count}",
-        f"- Total wall time: {total_seconds:.6f}s",
-        f"- Mean latency per call: {mean_ms:.6f}ms",
-        f"- Median latency per call: {median_ms:.6f}ms",
-        f"- Throughput: {throughput:.2f} events/sec",
+        "Regenerate: `python3 scripts/benchmark.py`",
+        "",
+        f"- Iterations: {iterations} `[Observed]`",
+        f"- Events per call: {event_count} `[Observed]`",
+        f"- Total wall time: {total_seconds:.6f}s `[Observed]`",
+        f"- Mean latency per call: {mean_ms:.6f}ms `[Observed]`",
+        f"- Median latency per call: {median_ms:.6f}ms `[Observed]`",
+        f"- Throughput: {throughput:.2f} events/sec `[Observed]`",
         "",
         "## Pass/fail counts ([Observed] from census summary)",
         "",
-        f"- Total census keys: {summary['total_keys']}",
-        f"- Clean: {summary['clean']}",
-        f"- Flagged: {summary['flagged']}",
-        f"- Dead letter: {summary['dead_letter']}",
+        CLI_CENSUS_CMD,
+        "",
+        f"- Total census keys: {summary['total_keys']} `[Observed]`",
+        f"- Clean: {summary['clean']} `[Observed]`",
+        f"- Flagged: {summary['flagged']} `[Observed]`",
+        f"- Dead letter: {summary['dead_letter']} `[Observed]`",
         "",
         "## Anomaly class counts ([Observed])",
         "",
+        CLI_CENSUS_CMD,
+        "",
     ]
     for anomaly_class, count in summary["anomaly_class_counts"].items():
-        lines.append(f"- {anomaly_class}: {count}")
-    lines.extend(["", "## Action counts ([Observed])", ""])
+        lines.append(f"- {anomaly_class}: {count} `[Observed]`")
+    lines.extend([
+        "",
+        "## Action counts ([Observed])",
+        "",
+        CLI_CENSUS_CMD,
+        "",
+    ])
     for action, count in summary["action_counts"].items():
-        lines.append(f"- {action}: {count}")
+        lines.append(f"- {action}: {count} `[Observed]`")
     lines.append("")
     return "\n".join(lines)
 
