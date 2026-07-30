@@ -12,10 +12,13 @@ This ticket is analysis and documentation only. No detection code lives here.
 Everything below is cross-referenced back to the scoring doc so no outcome or
 recommendation is left un-anchored. Two documents govern:
 
-- `SCORING.md` (repo root) — the five evaluation dimensions (S1 Strategic
-  judgment, S2 Execution detail, S3 Evidence quality, S4 AI fluency,
-  S5 Communication), the evidence tiers, the number source labels, and the
-  Verification / Integrity / "Failure Modes That Lose" sections.
+- `SCORING.md` — the cross-challenge scoring guide the brief links to as
+  `../../SCORING.md` (it lives above this challenge folder and is not committed
+  to this scaffold, so treat these citations as pointers, not in-repo files).
+  It defines the five evaluation dimensions (S1 Strategic judgment,
+  S2 Execution detail, S3 Evidence quality, S4 AI fluency, S5 Communication),
+  the evidence tiers, the number source labels, and the Verification /
+  Integrity / "Failure Modes That Lose" sections.
 - `scoring_rubric.md` (this challenge) — in particular its **Fixture
   Verification** paragraph, which is the bar this ticket is graded against.
 
