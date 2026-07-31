@@ -3,29 +3,13 @@
 **Brief version:** 2026-07  
 **Fixture checksum (SHA-256):** `[Observed]` `1aeb24b415009e89fcf8acb5a178410faf216dc17b16920d9849ecc8bbb24235` — reproduce: `shasum -a 256 fixtures/event_sample.jsonl`  
 **Author context:** Queue-based backend experience (RabbitMQ-adjacent patterns: backpressure, at-least-once delivery, idempotent handlers). PostHog referenced only as an SDK consumer, not as infrastructure we operate.  
-**Operating artifacts (excluded from page count):** `docs/fixture-forensics.md`, `src/analytics_pipeline/` + `tests/`, `docs/benchmark-results.md`, `docs/evidence-log.md`, `docs/submission-disclosures.md`, `docs/failure-modes.md`.
+**Operating artifacts (excluded from page count):** [`docs/design-appendix.md`](design-appendix.md), `docs/fixture-forensics.md`, `src/analytics_pipeline/` + `tests/`, `docs/benchmark-results.md`, `docs/evidence-log.md`, `docs/submission-disclosures.md`, `docs/failure-modes.md`.
 
-## Assumptions
-
-| Assumption | Rationale |
-|------------|-----------|
-| Current pipeline is SDK → HTTP API → Redis queue → synchronous Python workers → PostgreSQL with slow materialized-view refresh | Brief describes broken system; no production access to confirm |
-| MVP runs single-region `us-east-1`; EU data residency deferred to months 4–6 | 2-engineer team; compliance controls designed now, EU stack later |
-| Three Kinesis tiers (standard / high-volume / enterprise) sized from tenant ingest profiles | Rejects per-tenant streams (ops burden at 500+ tenants) and single-stream (noisy-neighbor) |
-| `event_id` is globally unique per logical event | Required for DynamoDB dedupe table; SDK contract |
-| Tier counts and shard sizing are estimates pending load test | Labeled `[Estimated]` in cost/latency tables |
+Assumptions and supporting-service tables live in [`docs/design-appendix.md`](design-appendix.md).
 
 ---
 
 ## 1. Architecture & Technology Choices
-
-### Current-state failure modes → fixes
-
-| Failure mode | Root cause (assumed) | Fix |
-|--------------|---------------------|-----|
-| `[Assumed]` 15–30 min dashboard latency | Synchronous workers + PostgreSQL materialized-view refresh blocks hot path | Decouple ingest (Kinesis buffer) from compute; write rollups to DynamoDB/ElastiCache for sub-second reads |
-| `[Assumed]` ~3% event loss at peak | Redis queue overflow + worker crashes drop unacked messages | Durable Kinesis retention (`[Assumed]` 24h+), at-least-once consumers, idempotent dedupe by `event_id`, DLQ for poison records |
-| Crashes during traffic spikes | Single Redis queue + fixed worker pool; no per-tenant isolation | Tiered streams absorb burst; API Gateway per-tenant rate limits; Lambda provisioned concurrency on high-volume tiers; bot traffic diverted to cold path |
 
 ### High-level data flow
 
@@ -73,26 +57,19 @@ flowchart LR
 - **Chosen:** API Gateway + Lambda — matches existing HTTP API patterns; team familiarity.
 - **Rejected:** AppSync — GraphQL adds client contract change risk. CloudFront-cached S3 — stale for real-time dashboards.
 
-**Supporting services:**
-
-| Service | Chosen for | Rejected alternative |
-|---------|-----------|---------------------|
-| SQS (DLQ) | Poison-message queue for parse failures (`evt-0020`) | SNS — no built-in retry/DLQ redrive; EventBridge — better for routing, weaker poison-queue semantics |
-| Step Functions (`evt-0017`) | Multi-store GDPR erasure orchestration with audit trail | Lambda-only chain — harder to observe/replay long workflows; SWF — deprecated |
-| S3 | Durable Parquet landing, quarantine, warehouse staging | EFS — higher cost at `[Estimated]` ~2TB/mo volume; Glacier — too slow for replay |
-| KMS | Per-tenant CMKs for quarantine/compliance prefixes | CloudHSM — over budget for MVP; no encryption — SOC 2 blocker |
-| CloudWatch | Metrics, alarms (shard lag, DLQ depth, p99 latency) | Datadog — adds `[Estimated]` ~$3K/mo; self-hosted Prometheus — ops burden |
-| Secrets Manager | API key rotation | SSM Parameter Store — no automatic rotation |
-
 Warehouse export (months 4–6): S3 → Snowflake/BigQuery native connectors. **Rejected:** Kinesis Data Firehose direct-to-warehouse — less control over Parquet schema evolution.
 
 ### Event data structure & identity stitching
 
-Canonical fields: `event_id`, `tenant_id`, `type`, `ts`, `received_at`, `anonymous_id`, `user_id`, `properties`, `anomaly_flags[]`. `identify` events (`evt-0003`, `evt-0008`, `evt-0022`) write `(tenant_id, anonymous_id) → user_id` to DynamoDB; subsequent events stitch on `user_id` when present, else `anonymous_id`. All lookups tenant-scoped. Behavioral rules example: "viewed pricing `[Assumed]` 3×" triggers segment membership.
+Canonical fields: `event_id`, `tenant_id`, `type`, `ts`, `received_at`, `anonymous_id`, `user_id`, `properties`, `anomaly_flags[]`. `identify` events (`evt-0003`, `evt-0008`, `evt-0022`) write `(tenant_id, anonymous_id) → user_id` to DynamoDB; subsequent events stitch on `user_id` when present, else `anonymous_id`. All lookups tenant-scoped.
+
+**Retroactive backfill (fixture-forced).** Three anonymous sessions arrive *before* their `identify` event links them to a `user_id`: `evt-0001`/`evt-0002` precede `evt-0003` (`anon-9f2 → u-5511`); `evt-0004` precedes `evt-0008` (`anon-c81 → u-2209`); `evt-0007` precedes `evt-0022` (`anon-3d0 → u-7304`). **Chosen:** stitch at query time — rollups keyed by `anonymous_id` until identify, then segment membership queries union both keys. **Rejected:** hot-path rollup rewrite on identify — write amplification on every identify (especially enterprise tenants with long anonymous sessions) for marginal dashboard freshness gain. Trade-off: query cost and segment-definition complexity vs. avoiding burst writes on identify storms.
+
+Behavioral rules example: segment "viewed pricing `[Observed]` 3×" — `evt-0019` carries `properties.count_today: 3` on a `viewed_pricing` custom event (the brief's own segmentation example).
 
 ### Fixture anomaly handling (nine classes + compliance workflow)
 
-Ground truth: `docs/fixture-forensics.md`. Validated by `detect_anomalies()` (`pytest tests/test_anomalies.py`; `[Observed]` ~223K events/sec — exact `[Observed]` 222924.03 events/sec in `docs/benchmark-results.md`).
+Ground truth: `docs/fixture-forensics.md`. Validated by `detect_anomalies()` (`python3 -m unittest discover -s tests`; local benchmark `[Observed]` ~223K events/sec subroutine throughput in `docs/benchmark-results.md` — measures in-process detection only, not end-to-end pipeline latency).
 
 **Not at face value (six refusals):** (1) `evt-0006` — `[Observed]` 65-min `ts` offset with matching `.552` ms suffix is a timezone bug, not a future event; order by `received_at`. (2) `evt-0009` — legacy SDK shape; normalize, never drop (brief forbids SDK upgrade). (3) `evt-0017` — GDPR `delete_all_data` mandate, not analytics volume; route to compliance workflow. (4) `evt-0002` — retry signature (`received_at` `[Observed]` +7.4s); dedupe on `event_id` only. (5) `evt-0011` — null `tenant_id` is unattributable; quarantine, never default. (6) `evt-0020` — corrupt JSON; DLQ and continue, never crash loader.
 
@@ -107,7 +84,7 @@ Ground truth: `docs/fixture-forensics.md`. Validated by `detect_anomalies()` (`p
 | 7. Schema drift | `evt-0009` | Normalize legacy fields to canonical shape; stamp `received_at` (see refusals above). |
 | 8. Bot burst | `evt-0012`–`evt-0015` | Bot score → cold S3; excluded from hot rollups (~50ms burst `[Observed]`). |
 | 9. Malformed JSON | `evt-0020` | SQS DLQ with raw line; loader continues (see refusals above). |
-| Compliance workflow | `evt-0017` | SQS → Step Functions erasure across all stores; audit each step; not analytics volume. |
+| Compliance workflow | `evt-0017` | SQS → Step Functions erasure across all stores; audit each step; not analytics volume. Erasure must cascade to events keyed to the subject's `user_id`/`anonymous_id` even when not named on the request — fixture: `evt-0006` shares `anon-77a` with `evt-0017` (`find_deletion_cascade()` in the artifact demonstrates this on the sample file). |
 
 ---
 
@@ -115,7 +92,11 @@ Ground truth: `docs/fixture-forensics.md`. Validated by `detect_anomalies()` (`p
 
 ### Throughput sizing `[Estimated]`
 
-`[Estimated]` 50M/day ÷ `[Estimated]` 86,400s ≈ `[Estimated]` 578 events/sec avg; `[Estimated]` × 10 spike ≈ `[Estimated]` 5,780/sec. Kinesis: `[Benchmarked]` 1,000 rec/s/shard (AWS service limits) → `[Estimated]` 30 shards = `[Estimated]` 30,000 rec/s (`[Estimated]` ~5.2× headroom at peak).
+Volume base (used consistently below): `[Observed from brief]` 50M events/day → `[Estimated]` 1.5B events/month; `[Estimated]` ~578 events/sec average (`50_000_000 ÷ 86_400`); `[Estimated]` ~5,780 events/sec at the stated 10× spike.
+
+Mean serialized event size: `[Observed]` ~229 bytes from the fixture (`24` parseable records; sample is `25` lines).
+
+Kinesis shard limits (`[Benchmarked]` AWS public pricing, us-east-1): `[Benchmarked]` 1,000 records/sec and `[Benchmarked]` 1 MB/sec per shard. At peak: record rate needs `[Estimated]` ceil(5,780 ÷ 1,000) = `6` shards; data rate needs `[Estimated]` ceil(5,780 × 229 B ÷ 1 MB) = `2` shards. **Record rate binds.** Base `[Estimated]` `8` shards across three tiers (`4+2+2`) for tier separation and headroom — well under the prior `[Estimated]` `30`-shard estimate, which sized only against record rate and ignored the data-rate limit.
 
 ### Latency budget (target: <5s end-to-end) `[Estimated]`
 
@@ -123,26 +104,35 @@ Ground truth: `docs/fixture-forensics.md`. Validated by `detect_anomalies()` (`p
 |-------|-----------|------------|-------|
 | Ingestion | SDK batch → API Gateway → Kinesis PutRecord | `[Estimated]` 200ms | SDK batches `[Assumed]` ≤20 events; Gateway regional |
 | Processing | Kinesis → Lambda normalize/dedupe | `[Estimated]` 800ms | Provisioned concurrency on hot tiers; includes DynamoDB conditional put |
-| Storage write | DynamoDB + ElastiCache parallel writes | `[Estimated]` 300ms | On-demand DDB; Redis cluster mode |
+| Storage write | DynamoDB + ElastiCache parallel writes | `[Estimated]` 300ms | Provisioned DDB with autoscaling |
 | Query | API Gateway → Lambda → DynamoDB/ElastiCache read | `[Estimated]` 500ms | Cached segment definitions |
 | **Total** | | **`[Estimated]` ~1.8s p99** | Headroom for `[Estimated]` 10× spike queueing; hard SLA alert at `[Assumed]` 5s |
 
 ### Cost breakdown at 50M+ events/day `[Estimated]` / `[Assumed]`
 
-Sizing per throughput section above. Parallel-run months 1–3 tee 100% to legacy + new path; legacy Redis/PostgreSQL cost is sunk `[Assumed]`; `[Estimated]` ~$8K headroom absorbs overlap API Gateway/Kinesis ingest during migration.
+All lines use the `[Estimated]` 1.5B events/month volume base. Pricing `[Benchmarked]` from AWS public pages (us-east-1, on-demand where applicable). `[Assumed]` SDK batches ~20 events per HTTP request (brief forbids SDK change — inherited behaviour, named as risk).
 
 | Service | Monthly cost | Basis |
 |---------|-------------|-------|
-| Kinesis Data Streams (3 tiers, `[Estimated]` ~30 shards total) | `[Estimated]` $12,000 | `[Estimated]` 30 shards × `[Benchmarked]` $0.015/shard-hr × `[Estimated]` 730h |
-| Lambda (hot-path, `[Estimated]` ~50M invocations) | `[Estimated]` $4,500 | `[Estimated]` 256MB, `[Estimated]` 200ms avg; provisioned concurrency on 2 tiers |
-| DynamoDB on-demand (dedupe + rollups) | `[Estimated]` $8,000 | `[Estimated]` ~100M writes/mo (dedupe + rollup); reads for dashboards |
-| ElastiCache (r6g.large × 2) | `[Estimated]` $6,500 | `[Estimated]` counter/trigger state |
-| Fargate (cold-path writers) | `[Estimated]` $3,500 | `[Estimated]` 4 tasks avg, 2 vCPU/4GB |
-| S3 (Parquet + quarantine) | `[Estimated]` $2,500 | `[Estimated]` ~2TB/mo landing |
-| API Gateway + CloudWatch + SQS DLQ | `[Estimated]` $2,000 | `[Estimated]` |
-| KMS (per-tenant CMKs for quarantine/compliance) | `[Estimated]` $1,500 | `[Assumed]` ~200 active CMKs × `[Benchmarked]` $1/mo + API calls |
-| Step Functions + misc (Secrets Manager, WAF) | `[Estimated]` $1,500 | `[Estimated]` |
-| **Total** | **`[Estimated]` ~$42,000** | `[Estimated]` ~$8K headroom under `[Assumed]` $50K ceiling |
+| Kinesis shard hours (`[Estimated]` 8 shards) | `[Estimated]` $88 | `[Estimated]` 8 × `[Benchmarked]` $0.015/shard-hr × `[Estimated]` 730h = $87.60 |
+| Kinesis PUT payload units | `[Estimated]` $1,050 | `[Assumed]` ~20 events/PutRecord → `[Estimated]` 75M units/mo × `[Benchmarked]` $0.014/M = $1,050 |
+| Kinesis enhanced fan-out (cold path) | `[Estimated]` $92 | `[Estimated]` 8 consumer-shard-hrs × `[Benchmarked]` $0.015 × 730h = $87.60; + `[Estimated]` ~$4 data retrieval |
+| Lambda (hot-path) | `[Estimated]` $180 | `[Estimated]` 75M invocations/mo (`[Assumed]` batched); `[Estimated]` 256MB × `[Estimated]` 200ms → ~$64 compute + ~$15 requests + modest provisioned concurrency |
+| DynamoDB provisioned (dedupe + rollups) | `[Estimated]` $1,000 | `[Estimated]` ~3B writes/mo with autoscaling; `[Benchmarked]` on-demand at same volume ≈ `[Estimated]` $3,750 — ~4× higher; provisioned chosen for cost at sustained volume |
+| ElastiCache (r6g.large × 2) | `[Estimated]` $301 | `[Benchmarked]` ~$0.205/hr × 2 × `[Estimated]` 730h |
+| Fargate (cold-path writers) | `[Estimated]` $288 | `[Estimated]` 4 tasks × (2 vCPU + 4GB) × `[Benchmarked]` rates × `[Estimated]` 730h |
+| S3 (Parquet + quarantine) | `[Estimated]` $46 | `[Estimated]` ~2TB × `[Benchmarked]` $0.023/GB |
+| API Gateway (HTTP API) | `[Estimated]` $75 | `[Assumed]` batched: `[Estimated]` 75M req/mo × `[Benchmarked]` $1.00/M. **Sensitivity:** unbatched 1.5B req/mo → `[Estimated]` ~$1,500 |
+| CloudWatch Logs (sampled) | `[Estimated]` $2 | `[Assumed]` 1% sampling of ~345GB/mo ingest × `[Benchmarked]` $0.50/GB; unsampled ≈ `[Estimated]` $172 |
+| NAT Gateway + data transfer | `[Estimated]` $60 | `[Benchmarked]` ~$32.85/gateway + modest egress |
+| KMS + misc (SQS, Step Functions, Secrets) | `[Estimated]` $350 | `[Assumed]` ~200 CMKs × `[Benchmarked]` $1/mo + API; DLQ/compliance workflow |
+| Parallel-run overlap (months 1–3) | `[Estimated]` $300 | `[Assumed]` 100% tee to legacy + new path doubles ingest-side API/Kinesis during migration |
+| **Derived total** | **`[Estimated]` ~$3,800** | Sum of lines above |
+| **Planning carry (3× buffer)** | **`[Estimated]` ~$11,400** | `[Estimated]` explicit buffer for unmodelled line items (multi-AZ, extended retention, load-test spend) — judgment, not hidden padding |
+
+**DynamoDB trade-off (surfaced by corrected math).** On-demand at `[Estimated]` 1.5B dedupe writes/month alone is `[Estimated]` ~$1,875; doubling for rollup writes ≈ `[Estimated]` $3,750. Provisioned capacity with autoscaling at the same volume lands `[Estimated]` ~4× lower (~$1,000 line above). **Chosen:** provisioned — a 2-engineer team can manage capacity alarms; the savings fund multi-AZ redundancy and load testing. **Rejected:** on-demand for simplicity — viable for MVP spike uncertainty, but expensive at `[Estimated]` 1.5B sustained writes.
+
+**Headroom under `[Assumed]` $50K ceiling.** The `[Estimated]` ~$3,800 derived total (carried at `[Estimated]` ~$11,400 in planning) leaves budget for: multi-AZ ElastiCache/DynamoDB, Kinesis extended retention beyond 24h, EU region stack earlier than months 4–6, dedicated load-testing environment, and reserved-capacity buffers for Black-Friday-scale spikes.
 
 ### Multi-tenant isolation (500+ tenants)
 
@@ -168,17 +158,7 @@ Sizing per throughput section above. Parallel-run months 1–3 tee 100% to legac
 - Bot heuristic (`evt-0012`–`evt-0015` pattern) diverts flagged traffic to cold S3, protecting ElastiCache/DynamoDB hot path.
 - Lambda provisioned concurrency pre-warmed on high-volume tiers before known events (Black Friday runbook).
 
-### Compliance controls (SOC 2 / GDPR / CCPA)
-
-| Control | Implementation |
-|---------|----------------|
-| Encryption at rest | KMS on S3, DynamoDB, Kinesis (server-side); per-tenant CMKs for quarantine |
-| Encryption in transit | TLS `[Assumed]` 1.2+ on API Gateway; Kinesis in-VPC endpoints |
-| Data residency | MVP: `us-east-1`; EU stack months 4–6 with tenant-level routing |
-| Right to deletion (GDPR) | `evt-0017` workflow: Step Functions erasure across all stores; human approval gate; confirmation audit log |
-| CCPA access / opt-out | Dashboard export API for access/portability; `do_not_sell` tenant flag suppresses third-party warehouse sync |
-| Audit logging | CloudTrail (API), S3 access logs (quarantine), DynamoDB streams (dedupe audit) |
-| Tenant segregation | Partition keys, IAM boundaries, separate KMS keys for sensitive prefixes |
+Compliance controls table: [`docs/design-appendix.md`](design-appendix.md).
 
 ### Migration & cutover
 
@@ -218,7 +198,7 @@ Sizing per throughput section above. Parallel-run months 1–3 tee 100% to legac
 
 ### What could go wrong
 
-See `docs/failure-modes.md` for the full architecture stress-test. Headline risks: dedupe TTL expiry; bot false positives; shard exhaustion beyond `[Estimated]` 30-shard budget; single-region blast radius; EU residency delay.
+See `docs/failure-modes.md` for the full architecture stress-test. Headline risks: dedupe TTL expiry; bot false positives; shard exhaustion beyond `[Estimated]` 8-shard budget at spikes above `[Estimated]` 10×; single-region blast radius; EU residency delay.
 
 ### With more time/budget
 
