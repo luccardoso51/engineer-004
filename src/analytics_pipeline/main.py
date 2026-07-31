@@ -9,6 +9,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from analytics_pipeline.anomalies import Anomaly, detect_anomalies
+from analytics_pipeline.compliance import find_deletion_cascade
 from analytics_pipeline.loader import DeadLetter, LoadResult, load_jsonl
 
 
@@ -73,6 +74,28 @@ def build_report(load_result: LoadResult) -> dict:
     }
 
 
+def report_deletion_cascade(load_result: LoadResult, privacy_event_id: str) -> dict:
+    """Report every event_id in the fixture touched by a privacy deletion request."""
+    privacy_event = next(
+        (event for event in load_result.events if event.get("event_id") == privacy_event_id),
+        None,
+    )
+    if privacy_event is None:
+        raise ValueError(f"no parseable event with event_id={privacy_event_id!r}")
+
+    cascade_ids = find_deletion_cascade(load_result.events, privacy_event)
+    return {
+        "privacy_event_id": privacy_event_id,
+        "subject": {
+            "tenant_id": privacy_event.get("tenant_id"),
+            "user_id": privacy_event.get("user_id"),
+            "anonymous_id": privacy_event.get("anonymous_id"),
+        },
+        "cascade_event_ids": cascade_ids,
+        "cascade_count": len(cascade_ids),
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Analytics pipeline fixture analyzer")
     parser.add_argument(
@@ -81,9 +104,24 @@ def main() -> None:
         default=Path("fixtures/event_sample.jsonl"),
         help="Path to the JSONL event fixture",
     )
+    parser.add_argument(
+        "--deletion-cascade",
+        metavar="EVENT_ID",
+        help="Report event_ids touched by a privacy_request deletion in this file",
+    )
     args = parser.parse_args()
 
     load_result = load_jsonl(args.fixture)
+    if args.deletion_cascade:
+        print(
+            json.dumps(
+                report_deletion_cascade(load_result, args.deletion_cascade),
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return
+
     report = build_report(load_result)
     print(json.dumps(report, indent=2, sort_keys=True))
 

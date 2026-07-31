@@ -1,42 +1,9 @@
 # Fixture Forensics & Anomaly Taxonomy
 
 Forensic catalog of `fixtures/event_sample.jsonl`. This is the ground-truth
-record of what is actually planted in the fixture, cited by `event_id`. Later
-tickets (design write-up, evidence log, AI-usage disclosure, the
-`detect_anomalies()` script and its tests) reference this document by path.
-
-This ticket is analysis and documentation only. No detection code lives here.
-
-## How this ticket maps to the scoring doc
-
-Everything below is cross-referenced back to the scoring doc so no outcome or
-recommendation is left un-anchored. Two documents govern:
-
-- `SCORING.md` — the cross-challenge scoring guide the brief links to as
-  `../../SCORING.md` (it lives above this challenge folder and is not committed
-  to this scaffold, so treat these citations as pointers, not in-repo files).
-  It defines the five evaluation dimensions (S1 Strategic judgment,
-  S2 Execution detail, S3 Evidence quality, S4 AI fluency, S5 Communication),
-  the evidence tiers, the number source labels, and the Verification /
-  Integrity / "Failure Modes That Lose" sections.
-- `scoring_rubric.md` (this challenge) — in particular its **Fixture
-  Verification** paragraph, which is the bar this ticket is graded against.
-
-Scoring tags used inline below: `[S1]`..`[S5]` are the SCORING.md dimensions;
-`[Evidence]`, `[Numbers]`, `[Verify]`, `[Integrity]`, `[FailMode]` are the
-SCORING.md sub-sections of the same name; `[FV]` is the scoring_rubric.md
-Fixture Verification bar.
-
-This ticket's five acceptance outcomes, each tied to what in the scoring doc it
-earns:
-
-| Ticket outcome | Where in this doc | Scoring reference |
-|----------------|-------------------|-------------------|
-| SHA-256 checksum recorded | Provenance | `[FV]` "state the fixture checksum" · `[Verify]` gives reviewers a checkable value · `[Numbers]` labeled `[Observed]` |
-| Every event reviewed, signals cited by `event_id` | Per-event review + taxonomy | `[FV]` "cite specific ids" / "catch most of the seeded issues" · `[S3][Evidence]` Tier 3 source record |
-| Corrected taxonomy, divergence from placeholder explained | Correction to the placeholder taxonomy | `[FV]` "conclusions that treat a planted issue as clean signal" is the losing move this correction prevents · `[S1]` judgment over rubric-matching · `[Integrity]` fixtures rotate, so the catalog is re-derived from this file, not a recycled list |
-| ≥3 items not to take at face value, with reasoning | Items that should NOT be taken at face value | `[FV]` "say what they refused to conclude" · `[S1]` strategic judgment · brief item #7 "what stays human" |
-| Standalone artifact later tickets reference | Whole doc + Handoff notes | `[S2]` execution detail for ticket 2 · Operating Artifact Requirement (an inspectable record) |
+record of what is actually planted in the fixture, cited by `event_id`. The
+design doc, evidence log, disclosure, and `detect_anomalies()` script all
+reference this document by path.
 
 ## Provenance
 
@@ -53,13 +20,13 @@ Brief version worked against: `2026-07` (per `brief.md`).
 
 ### Number source labels
 
-Per `SCORING.md` and brief requirement #4, numbers are labeled by source.
-Unless a value is tagged otherwise, **every quantity in this document is
-`[Observed]`** — read directly from `fixtures/event_sample.jsonl` at the
-checksum above, or exact arithmetic on those raw values (timestamp diffs,
-counts). Reproduce any of them from the fixture. No `[Estimated]`,
-`[Benchmarked]`, or `[Assumed]` numbers appear here; the interpretations
-(e.g. "retry", "timezone bug") are labeled inferences, not numbers.
+Per brief requirement #4, numbers are labeled by source. Unless a value is
+tagged otherwise, **every quantity in this document is `[Observed]`** — read
+directly from `fixtures/event_sample.jsonl` at the checksum above, or exact
+arithmetic on those raw values (timestamp diffs, counts). Reproduce any of them
+from the fixture. No `[Estimated]`, `[Benchmarked]`, or `[Assumed]` numbers
+appear here; the interpretations (e.g. "retry", "timezone bug") are labeled
+inferences, not numbers.
 
 Evidence tier for this artifact: Tier 3 (source record) — findings are
 reproducible from the checksummed raw file with `json.loads`.
@@ -70,13 +37,11 @@ Every line was parsed with a real `json.loads` pass. Successful records were
 indexed by `event_id`; timestamp fields (`ts`/`timestamp` vs `received_at`)
 were diffed; and the `anonymous_id -> tenant_id` and `user_id -> tenant_id`
 maps were built to test for cross-tenant reuse. Findings below reflect what
-that pass actually observed, not what the spec assumed.
+that pass actually observed, not what a placeholder taxonomy assumed.
 
-## Correction to the spec's placeholder taxonomy
+## Correction to the placeholder taxonomy
 
-The spec (recorded during scoping as `docs/adr/to-spec.md` line 59, which is
-not itself committed to this scaffold) proposed a nine-class taxonomy and
-flagged it as an unverified assumption:
+An early scoping draft proposed a nine-class taxonomy:
 
 1. duplicate `event_id`
 2. out-of-order / clock-skew timestamps
@@ -92,12 +57,6 @@ Checked against the actual fixture, that list is partly wrong. Three of its
 classes are **not present** and are not testable against this file, and three
 classes that **are** genuinely planted were missing from it. The corrected
 taxonomy below still totals nine classes, but with a different composition.
-
-Scoring reference: correcting the placeholder rather than shipping it is the
-`[FV]` requirement not to "treat a planted issue as clean signal" and not to
-make "recommendations the fixture contradicts"; it is `[S1]` judgment over
-rubric-matching and `[Integrity]` (this catalog is re-derived from the current
-checksummed fixture, not a recycled nine-class assumption).
 
 ### Classes dropped from the placeholder (not observed here)
 
@@ -183,18 +142,14 @@ Net change vs the placeholder:
 | 24 | evt-0023 | t-088 | form_submit | Clean. |
 | 25 | evt-0024 | t-017 | page_view | Clean; `anon-52d` -> `u-8842` (consistent with evt-0016). |
 
-(“Line” is the physical file line. Note the `evt-0002` duplicate on line 5
+("Line" is the physical file line. Note the `evt-0002` duplicate on line 5
 shifts every subsequent event one line down, so `evt-0020` sits on file line
 21, not line 20.)
 
 ## Items that should NOT be taken at face value
 
 The brief requires at least three. Six strong candidates were found; all six
-are listed so downstream tickets can pick the strongest for the written answer.
-
-Scoring reference for the whole section: this is the `[FV]` bar "say what they
-refused to conclude", `[S1]` strategic judgment, and brief item #7 "what stays
-human". Each item's own scoring tag is on its last line.
+are listed so the written answer can pick the strongest.
 
 1. **`evt-0006` — do not treat as a real future-dated event.** The `ts` is
    ~65 minutes ahead of `received_at` with an exactly matching `.552`
@@ -204,7 +159,6 @@ human". Each item's own scoring tag is on its last line.
    should treat `received_at` as authoritative for ordering rather than
    trusting `ts`, and flag the source for correction — not silently accept a
    65-minute-future event.
-   Scoring: `[FV]` refuse to treat a planted signal as clean · `[S1]` judgment.
 
 2. **`evt-0009` — do not simply discard as "broken".** The differences
    (`pageview`, `timestamp`, `page_path`, `ref`, no `received_at`) are
@@ -213,17 +167,15 @@ human". Each item's own scoring tag is on its last line.
    schema and stamped with a server-side receive time, not dropped. Dropping it
    would silently lose real traffic from customers on an older SDK — and the
    brief forbids forcing an SDK upgrade.
-   Scoring: `[S1]` judgment (normalize vs drop) · brief constraint "cannot
-   require customers to update SDK" · `[FailMode]` avoids losing real traffic.
 
 3. **`evt-0017` — do not count as a normal analytics event.** It is a GDPR
    `delete_all_data` mandate for `u-1077`/`anon-77a`, not a page view to
    tally. Taken at face value it would inflate `custom`/event volume and, worse,
    fail a legal obligation. It must route to a compliance workflow that purges
    that subject's *other* events downstream and confirms deletion — a
-   human/approved action, not an automated metric increment.
-   Scoring: brief item #7 "what stays human" · `[S1]` compliance-as-architecture
-   (also scoring_rubric.md failure mode "compliance bolted on later").
+   human/approved action, not an automated metric increment. The same
+   `anon-77a` appears on `evt-0006`, so the erasure workflow must reach events
+   the request itself does not name.
 
 4. **`evt-0002` duplicate — do not dedupe on payload+`ts`, and do not treat as
    two clicks.** The two copies share `ts` and payload but differ in
@@ -231,40 +183,26 @@ human". Each item's own scoring tag is on its last line.
    or failed ack. Deduplication must key on `event_id` (idempotency key), and
    the pipeline must be idempotent so the retry is absorbed rather than counted
    twice.
-   Scoring: `[S2]` execution detail (idempotency key = `event_id`) · `[FailMode]`
-   avoids double-counting under retry.
 
 5. **`evt-0011` null `tenant_id` — do not silently drop, and do not default it
    to a tenant.** An unattributable event could indicate SDK misconfiguration
    or an attempted injection. Defaulting it to some tenant would corrupt that
    tenant's data; silently dropping it hides the misconfiguration. It should be
    quarantined/routed for investigation.
-   Scoring: `[S1]` judgment (quarantine vs default/drop) · brief "multi-tenant"
-   constraint (defaulting corrupts a tenant's data).
 
 6. **`evt-0020` malformed record — do not let it crash the loader, and do not
    silently skip it.** The parse failure is an isolated corrupt record (the file
    is valid before and after it), so the loader must dead-letter this line and
-   continue. This is precisely the record ticket 2's fixture loader must
-   dead-letter rather than crash on.
-   Scoring: `[FailMode]` "one-off demo that only works on the happy path" ·
-   `[S2]` execution detail for ticket 2's loader.
+   continue.
 
-## Handoff notes for later tickets
+## How the detector uses this catalog
 
-Each handoff outcome carries the scoring reference it is meant to earn once
-ticket 2 acts on it, so the thread from this catalog to the graded submission
-stays explicit.
-
-- Detection code, CLI, and the unittest suite are ticket 2's scope (blocked by
-  this ticket). Ticket 2 should assert against the exact `event_id`s above.
-  Scoring: `[S3][Evidence]` a runnable script raises the fixture work to a
-  Tier 2/3 operating artifact · `[FV]` "cite specific ids".
-- Ticket 2's loader must survive `evt-0020` (file line 21) via dead-lettering,
-  and must still yield the 24 parseable records.
-  Scoring: `[FailMode]` happy-path-only demo · `[S2]` execution detail.
-- Dedup logic must key on `event_id` (`evt-0002` case).
-  Scoring: `[S2]` execution detail · `[FailMode]` avoids double-counting.
-- The `privacy_request` (`evt-0017`) path is a workflow/compliance concern, not
-  a filter — keep it distinct from data-quality anomalies.
-  Scoring: `[S1]` compliance-as-architecture · brief item #7 "what stays human".
+`detect_anomalies()` in `src/analytics_pipeline/anomalies.py` classifies by
+measurable signal (timestamp diffs, field shapes, burst patterns) rather than
+hard-coded `event_id`s — see ADR 0001. The unittest suite asserts against the
+exact `event_id`s cataloged here. The loader dead-letters `evt-0020` (file line
+21) and still yields the 24 parseable records. Dedup logic keys on `event_id`
+(`evt-0002` case). The `privacy_request` path (`evt-0017`) is a workflow/compliance
+concern, not a data-quality filter. `find_deletion_cascade()` reports which
+events in the file share the deletion subject's `user_id` or `anonymous_id`
+(fixture: `evt-0006` cascades from `evt-0017` via `anon-77a`).

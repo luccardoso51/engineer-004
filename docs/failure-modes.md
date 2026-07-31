@@ -61,8 +61,9 @@ a threshold.
 
 Backpressure is the aggregate-load version of the same problem: total ingest
 outruns downstream capacity. Sizing (`design-pipeline.md` §"Throughput sizing")
-budgets `[Estimated]` ~30 shards for `[Estimated]` ~5,780 events/sec at a
-`[Estimated]` 10× spike, i.e. `[Estimated]` ~5.2× headroom — but a spike beyond
+budgets `[Estimated]` ~8 shards for `[Estimated]` ~5,780 events/sec at a
+`[Estimated]` 10× spike (record-rate limit binds at `[Estimated]` 6 shards;
+`[Estimated]` 8 chosen for tier separation and headroom) — but a spike beyond
 that budget, or a slowdown in any single downstream stage, exhausts capacity.
 The first thing to break is not necessarily the shards: the DynamoDB dedupe
 conditional-put (one write per event, PK=`event_id`) or Lambda hot-path
