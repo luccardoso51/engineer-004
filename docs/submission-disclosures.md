@@ -41,26 +41,10 @@ The concrete place this real experience corrected and grounded the AI-drafted ar
 
 That passage is not a generic restatement of streaming theory — it is Lucas mapping a proven, hands-on pattern onto Claude's proposed AWS topology, which is why the zero-data-loss mechanism is framed the way it is. PostHog, by contrast, appears in the docs only as an SDK-consumer reference point, never as evidence that Lucas has operated ingestion infrastructure.
 
-## What breaks it
+## Failure modes & what stays human
 
-| Failure mode | Why the design fails | Detection |
-|--------------|---------------------|-----------|
-| `event_id` not globally unique | Dedupe table collapses distinct events | Sudden rollup drops; parity check vs legacy |
-| Sustained spike >`[Estimated]` 30K events/sec | Kinesis shard capacity exhausted despite buffering | `IteratorAge` alarm; ingest 503 rate |
-| Dedupe TTL < replay lag | Double-counted events after DLQ replay | `DuplicateEventRate` after replay jobs |
-| Bot heuristic false positive | Legitimate traffic excluded from hot rollups | Tenant support tickets; per-tenant override list |
-| Parallel-run tee misconfigured | Legacy path starved or double-billed | Per-path ingest counters diverge |
-| GDPR erasure partial failure | `evt-0017`-class requests leave data in cold S3 | Step Functions failure state; audit log gap |
-| EU tenant routed to `us-east-1` post-month 4 | GDPR residency violation | Tenant config audit |
-
-## What stays human
-
-| Decision | Why not automated |
-|----------|-------------------|
-| GDPR/CCPA erasure approval (`evt-0017`) | Legal scope confirmation; prevent mistaken full-account wipe |
-| Quarantine release for `evt-0011` (null `tenant_id`) | Attribution requires support investigation, not guesswork |
-| Tenant tier promotion/demotion | Business relationship + ingest profile judgment |
-| Migration promote per tenant (`[Assumed]` 72h parity gate) | Rollback cost is customer-visible; engineer signs off |
-| Bot-flag override for enterprise tenants | False positive risk on high-value traffic |
-| Shard-split runbook execution during Black Friday | Capacity change with spend impact; on-call judgment |
-| PII quarantine review (`evt-0007`) | Compliance officer confirms redaction scope |
+Moved to its own operating artifact: see **`docs/failure-modes.md`** for the
+architecture stress-test (hot-partition tenants, ingestion backpressure,
+cross-region failover, poison-pill/malformed events) and the single merged
+"What stays human" table. It is kept there so the packet carries one
+authoritative version of this analysis rather than two divergent copies.
