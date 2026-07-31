@@ -5,3 +5,6 @@ __pycache__/
 .ruff_cache/
 *.egg-info/
 .DS_Store
+
+# Harness process artifacts (kept local; not part of the submission deliverable)
+.ai-eng/
