@@ -60,7 +60,6 @@ Notes on what you should see:
 | [`src/analytics_pipeline/`](src/analytics_pipeline/) | The operating artifact: `loader.py` (JSONL loading with dead-lettering), `anomalies.py` (`detect_anomalies()`), `main.py` (CLI census) |
 | [`tests/`](tests/) | 26 tests asserting the detector against the specific `event_id`s planted in the fixture |
 | [`scripts/benchmark.py`](scripts/benchmark.py) | Throughput/latency benchmark for `detect_anomalies()` against the checksummed fixture |
-| [`.ai-eng/`](.ai-eng/) | Raw state and transcripts from the pipeline that produced this work — tickets, implementation prep, verification. Included as a prompt trace, not as reading material |
 
 ## What the artifact actually does
 
@@ -94,6 +93,6 @@ Stated here so nothing has to be discovered:
 
 ## How this was built
 
-Claude drafted the architecture and most of the prose; I reviewed, questioned, and approved or overrode each decision before it was treated as final. The orchestration ran through Nemo, a staged CLI pipeline I built (`grill → spec → tickets → implement-prep → implement → verify`), which forces a decision point back to me between stages. The full disclosure — including what I directed rather than merely approved, and where my own queue-based backend experience corrected the model — is in [`docs/submission-disclosures.md`](docs/submission-disclosures.md). The commit history and the `.ai-eng/` transcripts are the audit trail for that account.
+Claude drafted the architecture and most of the prose; I reviewed, questioned, and approved or overrode each decision before it was treated as final. The orchestration ran through Nemo, a staged CLI pipeline I built (`grill → spec → tickets → implement-prep → implement → verify`), which forces a decision point back to me between stages. The full disclosure — including what I directed rather than merely approved, and where my own queue-based backend experience corrected the model — is in [`docs/submission-disclosures.md`](docs/submission-disclosures.md). The commit and PR history of this repo is the audit trail for that account; Nemo's raw per-stage transcripts are kept locally and available unedited on request.
 
 Happy to walk through any of it live, including with a changed constraint.
