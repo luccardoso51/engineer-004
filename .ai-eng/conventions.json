@@ -1,0 +1,11 @@
+{
+  "sourcesHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "conventions": {
+    "branchPattern": null,
+    "commitPattern": null,
+    "prTitlePattern": null,
+    "prBodyNotes": null,
+    "slackRequired": false,
+    "notes": "Repo is a take-home challenge scaffold (brief.md/scoring_rubric.md) with no CONTRIBUTING doc, no PR template, no CI/commitlint workflows, and no git hooks beyond samples; only one existing commit (\"Bootstrap scaffolded project\"). No documented conventions exist to follow."
+  }
+}

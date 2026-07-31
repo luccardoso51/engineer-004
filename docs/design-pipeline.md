@@ -3,7 +3,7 @@
 **Brief version:** 2026-07  
 **Fixture checksum (SHA-256):** `[Observed]` `1aeb24b415009e89fcf8acb5a178410faf216dc17b16920d9849ecc8bbb24235` — reproduce: `shasum -a 256 fixtures/event_sample.jsonl`  
 **Author context:** Queue-based backend experience (RabbitMQ-adjacent patterns: backpressure, at-least-once delivery, idempotent handlers). PostHog referenced only as an SDK consumer, not as infrastructure we operate.  
-**Operating artifacts (excluded from page count):** `docs/fixture-forensics.md`, `src/analytics_pipeline/` + `tests/`, `docs/benchmark-results.md`, `docs/evidence-log.md`, `docs/submission-disclosures.md`.
+**Operating artifacts (excluded from page count):** `docs/fixture-forensics.md`, `src/analytics_pipeline/` + `tests/`, `docs/benchmark-results.md`, `docs/evidence-log.md`, `docs/submission-disclosures.md`, `docs/failure-modes.md`.
 
 ## Assumptions
 
@@ -218,7 +218,7 @@ Sizing per throughput section above. Parallel-run months 1–3 tee 100% to legac
 
 ### What could go wrong
 
-See `docs/submission-disclosures.md`. Headline risks: dedupe TTL expiry; bot false positives; shard exhaustion beyond `[Estimated]` 30-shard budget; EU residency delay.
+See `docs/failure-modes.md` for the full architecture stress-test. Headline risks: dedupe TTL expiry; bot false positives; shard exhaustion beyond `[Estimated]` 30-shard budget; single-region blast radius; EU residency delay.
 
 ### With more time/budget
 
